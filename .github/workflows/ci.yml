@@ -112,3 +112,12 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=1
           UBSAN_OPTIONS: print_stacktrace=1
+
+      # 端到端：真 RESP 协议交互 + AOF 崩溃恢复。
+      # 单测覆盖的是 ZSet 类，命令层的编码（例如 RESP 数组头与实际元素数
+      # 是否一致）只有真协议交互才能暴露 —— 本项目就是这么抓到一个 bug 的。
+      - name: End-to-end ZSET (real protocol + AOF recovery)
+        run: bash scripts/e2e_zset.sh ./build-debug/bin
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: print_stacktrace=1

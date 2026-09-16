@@ -14,7 +14,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # ---------------------------------------------------------------- 平台依赖
 if(WIN32)
-  # Windows 下需要 winsock 库；本项目在 Windows 上走 WSAPoll 后端。
+  # Windows 开发构建需要 winsock；IO 后端走 select（见 src/poller.cpp）
   set(RL_PLATFORM_LIBS ws2_32)
 else()
   find_package(Threads REQUIRED)
@@ -23,7 +23,7 @@ endif()
 
 # ---------------------------------------------------------------- 核心库
 # 把除 main 之外的所有实现打成静态库，供服务端、压测工具、单元测试复用。
-file(GLOB RL_CORE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+file(GLOB RL_CORE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cc)
 list(REMOVE_ITEM RL_CORE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cc)
 
 add_library(rlcore STATIC ${RL_CORE_SOURCES})
@@ -48,6 +48,10 @@ target_link_libraries(redis-lite PRIVATE rlcore)
 add_executable(rl-bench ${CMAKE_CURRENT_SOURCE_DIR}/tools/bench.cc)
 target_link_libraries(rl-bench PRIVATE rlcore)
 
+# ZRANK 复杂度验证：证明 O(N) -> O(log N) 的实测工具（多规模趋势对比）
+add_executable(rl-bench-zrank ${CMAKE_CURRENT_SOURCE_DIR}/tools/bench_zrank.cc)
+target_link_libraries(rl-bench-zrank PRIVATE rlcore)
+
 # ---------------------------------------------------------------- 单元测试
 file(GLOB RL_TEST_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cc)
 add_executable(rl-tests ${RL_TEST_SOURCES})
@@ -61,7 +65,7 @@ add_test(NAME unit COMMAND rl-tests)
 message(STATUS "redis-lite build type : ${CMAKE_BUILD_TYPE}")
 message(STATUS "redis-lite core files : ${RL_CORE_SOURCES}")
 if(WIN32)
-  message(STATUS "redis-lite io backend  : WSAPoll (level-triggered)")
+  message(STATUS "redis-lite io backend  : select (level-triggered, dev only)")
 else()
   message(STATUS "redis-lite io backend  : epoll (edge-triggered)")
 endif()

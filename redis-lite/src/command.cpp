@@ -749,12 +749,30 @@ bool NormalizeRange(int64_t start, int64_t stop, size_t size, size_t* out_start,
     return true;
 }
 
-// ZRANGE key start stop / ZREVRANGE key start stop
+// ZRANGE key start stop [WITHSCORES] / ZREVRANGE ...
+//
+// ★ 协议正确性（由端到端测试抓到）：RESP 数组头必须等于**实际写入的元素个数**。
+//   早期版本写 `*N` 却输出了 N 组 member+score（共 2N 个元素），客户端会读错位。
+//   单元测试测的是 ZSet 类，覆盖不到命令层的编码 ——
+//   这类 bug 只有真协议交互才能暴露。
+//
+//   现在的语义与 Redis 一致：
+//     默认        只返回 member       → 头 = N
+//     WITHSCORES  返回 member + score → 头 = 2N
 void CmdZRangeGeneric(ServerContext& ctx, std::vector<std::string>& args, std::string* out,
                       bool reverse) {
-    if (args.size() != 4) {
+    if (args.size() != 4 && args.size() != 5) {
         ReplyWrongArgs(out, reverse ? "zrevrange" : "zrange");
         return;
+    }
+
+    bool with_scores = false;
+    if (args.size() == 5) {
+        if (ToLowerAscii(args[4]) != "withscores") {
+            ReplyError(out, "ERR syntax error");
+            return;
+        }
+        with_scores = true;
     }
 
     int64_t start = 0, stop = 0;
@@ -777,16 +795,16 @@ void CmdZRangeGeneric(ServerContext& ctx, std::vector<std::string>& args, std::s
     std::vector<const ZSetNode*> nodes;
     zs->RangeByRank(lo, hi, &nodes);
 
-    EncodeArrayHeader(nodes.size(), out);
+    EncodeArrayHeader(with_scores ? nodes.size() * 2 : nodes.size(), out);
     if (!reverse) {
         for (const ZSetNode* n : nodes) {
             EncodeBulkString(n->member, out);
-            EncodeBulkString(ZScoreToString(n->score), out);
+            if (with_scores) EncodeBulkString(ZScoreToString(n->score), out);
         }
     } else {
         for (auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
             EncodeBulkString((*it)->member, out);
-            EncodeBulkString(ZScoreToString((*it)->score), out);
+            if (with_scores) EncodeBulkString(ZScoreToString((*it)->score), out);
         }
     }
 }
@@ -831,12 +849,22 @@ bool ParseScoreBound(const std::string& text, ZScore* value, bool* exclusive) {
     return ParseZScore(p, len, value);
 }
 
-// ZRANGEBYSCORE key min max
+// ZRANGEBYSCORE key min max [WITHSCORES]
 void CmdZRangeByScore(ServerContext& ctx, std::vector<std::string>& args, std::string* out) {
-    if (args.size() != 4) {
+    if (args.size() != 4 && args.size() != 5) {
         ReplyWrongArgs(out, "zrangebyscore");
         return;
     }
+
+    bool with_scores = false;
+    if (args.size() == 5) {
+        if (ToLowerAscii(args[4]) != "withscores") {
+            ReplyError(out, "ERR syntax error");
+            return;
+        }
+        with_scores = true;
+    }
+
     ZScore min_s = 0, max_s = 0;
     bool min_ex = false, max_ex = false;
     if (!ParseScoreBound(args[2], &min_s, &min_ex) ||
@@ -851,10 +879,11 @@ void CmdZRangeByScore(ServerContext& ctx, std::vector<std::string>& args, std::s
     std::vector<const ZSetNode*> nodes;
     zs->RangeByScore(min_s, max_s, min_ex, max_ex, &nodes);
 
-    EncodeArrayHeader(nodes.size(), out);
+    // 头部与元素数必须一致（见 CmdZRangeGeneric 的说明）
+    EncodeArrayHeader(with_scores ? nodes.size() * 2 : nodes.size(), out);
     for (const ZSetNode* n : nodes) {
         EncodeBulkString(n->member, out);
-        EncodeBulkString(ZScoreToString(n->score), out);
+        if (with_scores) EncodeBulkString(ZScoreToString(n->score), out);
     }
 }
 

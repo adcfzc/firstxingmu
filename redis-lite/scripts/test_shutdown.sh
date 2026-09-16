@@ -71,6 +71,11 @@ run_scenario() {
     log="/tmp/sd_${port}.log"
     rm -f "$log"
 
+    # 清理同端口遗留进程：否则新实例绑定失败，脚本却在与旧进程对话，
+    # 得出错误结论（同 e2e_zset.sh 里记录的坑）。
+    pkill -f "redis-lite --port $port" 2>/dev/null
+    sleep 0.2
+
     if [ "$with_aof" = "yes" ]; then
         rm -f "/tmp/sd_${port}.aof"
         "$BIN/redis-lite" --port "$port" --threads 2 --aof "/tmp/sd_${port}.aof" \
@@ -86,6 +91,11 @@ run_scenario() {
         echo "[FAIL] $label: server did not start listening on $port"
         kill -9 $P 2>/dev/null
         grep -iE 'error|fatal' "$log" 2>/dev/null | head -3
+        FAILS=$((FAILS+1))
+        return
+    fi
+    if ! kill -0 "$P" 2>/dev/null; then
+        echo "[FAIL] $label: our server process died (port taken by a leftover?)"
         FAILS=$((FAILS+1))
         return
     fi
