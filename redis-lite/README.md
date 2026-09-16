@@ -1,8 +1,24 @@
 # redis-lite
 
+[![CI](https://github.com/adcfzc/firstxingmu/workflows/CI/badge.svg)](https://github.com/adcfzc/firstxingmu/actions/workflows/ci.yml)
+
 一个用 C++17 从零实现的高性能 KV 服务，面向 C++ 后端 / 基础架构岗的简历项目。
 
 **核心特征**：多 Reactor 网络层 + 分片存储引擎 + AOF 崩溃一致性 + 有序集合。
+
+**CI 覆盖**（每次推送自动运行，5 个 job）：
+
+| Job | 内容 |
+|---|---|
+| build × 3 | **gcc-11**（Ubuntu 22.04）/ **gcc-13** / **clang-18** 三套编译器各自编译并跑全部单测 |
+| werror | `-Werror -Wall -Wextra`，保持零告警不回退 |
+| sanitizer | **ASan + UBSan** 下跑单测，并单独验证**关闭路径**（压测覆盖不到的盲区） |
+
+> 为什么 CI 不是形式主义（本项目真实教训）：
+> ① 代码在 Windows 上 0 告警，但 Linux 分支**从未编译过**，交付前才发现漏了
+> `<netdb.h>` 与 `<sys/eventfd.h>`——一个分支能过 ≠ 代码可移植；
+> ② 关闭路径有个跨线程 bug，**跑 30 万次压测都正常，一收 SIGTERM 就 abort**，
+> 因为压测流量里连接都是客户端先断开的。详见 `docs/IMPLEMENTATION_LOG.md`。
 
 ---
 
