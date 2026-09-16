@@ -117,7 +117,7 @@ jobs:
         run: ./build-asan/bin/rl-tests
 
       - name: Shutdown path under sanitizers
-        run: bash scripts/test_shutdown.sh
+        run: bash scripts/test_shutdown.sh ./build-asan/bin
         env:
           ASAN_OPTIONS: detect_leaks=1
           UBSAN_OPTIONS: print_stacktrace=1

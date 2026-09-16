@@ -3,7 +3,8 @@
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
-BIN=./build-debug/bin
+# 允许外部指定二进制目录（CI 构建到 build-asan，本地用 build-debug）。
+BIN="${1:-./build-debug/bin}"
 export ASAN_OPTIONS=detect_leaks=1
 export UBSAN_OPTIONS=print_stacktrace=1
 FAILS=0
