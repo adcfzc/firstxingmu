@@ -62,13 +62,34 @@ if command -v nc > /dev/null 2>&1; then
     rm -rf build-debug
     bash scripts/build.sh debug > /tmp/vb_asan.log 2>&1
     if [ $? -eq 0 ]; then
-        ./build-debug/bin/rl-tests > /tmp/vb_atest.log 2>&1 && tail -3 /tmp/vb_atest.log
-        bash scripts/test_shutdown.sh ./build-debug/bin | tail -8
-        [ $? -ne 0 ] && FAILS=$((FAILS+1))
+        # ★ 每一步都必须单独取退出码。
+        #
+        #   踩过的坑：原先写成
+        #       ./build-debug/bin/rl-tests > log 2>&1 && tail -3 log
+        #       bash scripts/test_shutdown.sh ... | tail -8
+        #       [ $? -ne 0 ] && FAILS=...
+        #   于是 (a) 管道后的 $? 是 tail 的退出码而非被测程序的；
+        #        (b) 测试失败时 tail 被 && 短路，日志也不打印。
+        #   结果是 **ASan 单测明明在报内存泄漏，脚本却报 ALL PASS**。
+        #   这与「二进制不存在却报通过」同源：验证步骤必须真正断言。
+        run_step() {
+            local label="$1"; shift
+            "$@" > "/tmp/vb_${label}.log" 2>&1
+            local rc=$?
+            tail -3 "/tmp/vb_${label}.log"
+            if [ "$rc" -ne 0 ]; then
+                echo "[FAIL] $label (rc=$rc) 细节见 /tmp/vb_${label}.log"
+                grep -iE "runtime error|AddressSanitizer|SUMMARY|FAIL" \
+                     "/tmp/vb_${label}.log" | head -8
+                FAILS=$((FAILS + 1))
+            else
+                echo "[ OK ] $label"
+            fi
+        }
 
-        echo "--- 端到端 ZSET（真协议 + AOF 恢复）---"
-        bash scripts/e2e_zset.sh ./build-debug/bin | tail -6
-        [ $? -ne 0 ] && FAILS=$((FAILS+1))
+        run_step asan_unit ./build-debug/bin/rl-tests
+        run_step shutdown bash scripts/test_shutdown.sh ./build-debug/bin
+        run_step e2e bash scripts/e2e_zset.sh ./build-debug/bin
     else
         echo "ASan 构建失败:"; grep -iE "error" /tmp/vb_asan.log | head -10; FAILS=$((FAILS+1))
     fi

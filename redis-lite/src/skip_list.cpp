@@ -58,7 +58,19 @@ SkipList::SkipList() {
     length_ = 0;
 }
 
-SkipList::~SkipList() { Clear(); }
+SkipList::~SkipList() {
+    // ★ 必须显式释放头节点。
+    //
+    //   Clear() 只释放链表上的数据节点并「复位」头节点，头节点本身是
+    //   构造时 new 出来的，不受 Clear 管理。漏掉这一句时每个 SkipList
+    //   泄漏约 128 字节（头节点的 32 个 forward + 32 个 span + 节点体）。
+    //
+    //   这个泄漏由 AddressSanitizer 在 CI 里抓到（2.7MB / 18456 次分配），
+    //   单测本身完全感知不到 —— 内存泄漏的典型特征。
+    Clear();
+    SkipNodeDestroy(header_);
+    header_ = nullptr;
+}
 
 void SkipList::Clear() {
     SkipNode* node = header_->forward[0];
