@@ -1,0 +1,17 @@
+# 构建产物 —— 源码仓库不提交二进制
+build/
+build-debug/
+build-win/
+build-werror/
+build-asan/
+build-linux/
+
+# 本机开发与虚拟机访问用的 SSH 密钥/配置（公开仓库绝不能提交）
+.ssh/
+*.tar.gz
+*.aof
+
+# 编辑器
+.vscode/
+.idea/
+*.swp

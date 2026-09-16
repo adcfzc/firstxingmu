@@ -1,0 +1,123 @@
+name: CI
+
+# 注意：本文件必须在**仓库根目录**的 .github/workflows/ 下，
+# 而不是 redis-lite/ 子目录里 —— GitHub Actions 只扫描根目录。
+# （历史教训：工作流放在 redis-lite/.github/workflows/ 时，
+#   GitHub 检测到 0 个工作流，推送后什么都不会发生。）
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-gcc-11:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: redis-lite
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (gcc-11)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        env:
+          CC: gcc-11
+          CXX: g++-11
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Unit tests
+        run: ./build/bin/rl-tests
+
+  build-gcc-13:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: redis-lite
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (gcc-13)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        env:
+          CC: gcc-13
+          CXX: g++-13
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Unit tests
+        run: ./build/bin/rl-tests
+
+  build-clang:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: redis-lite
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (clang-18)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        env:
+          CC: clang-18
+          CXX: clang++-18
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Unit tests
+        run: ./build/bin/rl-tests
+
+  # 零告警是当前基线（-Wall -Wextra 下 0 warning），-Werror 防止回退。
+  # 历史教训：Linux 分支曾从未编译过，直到交付前才在虚拟机上发现
+  # 缺 <netdb.h> / <sys/eventfd.h>。多编译器矩阵防的就是这类盲区。
+  werror:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: redis-lite
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with -Werror
+        run: |
+          cmake -B build-werror -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_CXX_FLAGS="-Werror -Wall -Wextra"
+          cmake --build build-werror -j"$(nproc)"
+        env:
+          CC: gcc-13
+          CXX: g++-13
+
+  # 关闭路径（服务端主动退出）曾是压测永远覆盖不到的盲区：
+  # 正常流量下连接都是客户端先断开，优雅退出路径从未被执行，
+  # 曾导致每次 SIGTERM 都 abort。这一步把它变成例行检查。
+  sanitizer:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: redis-lite
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install netcat (shutdown test 需要)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq netcat-openbsd
+
+      - name: Build with ASan + UBSan
+        run: |
+          cmake -B build-asan -DCMAKE_BUILD_TYPE=Debug \
+                -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          cmake --build build-asan -j"$(nproc)"
+        env:
+          CC: gcc-13
+          CXX: g++-13
+
+      - name: Unit tests under sanitizers
+        run: ./build-asan/bin/rl-tests
+
+      - name: Shutdown path under sanitizers
+        run: bash scripts/test_shutdown.sh
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: print_stacktrace=1
