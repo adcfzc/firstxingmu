@@ -10,59 +10,47 @@ on:
   pull_request:
 
 jobs:
-  build-gcc-11:
-    runs-on: ubuntu-24.04
+  # ---------------------------------------------------------------- 构建矩阵
+  #
+  # ⚠️ 编译器可用性取决于 runner 的镜像版本，不能照搬开发机。
+  #    本项目踩过的坑：开发虚拟机是 Ubuntu 22.04（默认 gcc-11），
+  #    于是矩阵里写了 gcc-11，但 runner 用 ubuntu-24.04（默认 gcc-13，
+  #    没有 gcc-11），Configure 阶段 0 秒就失败。
+  #
+  #    修法不只是"换成存在的编译器"，而是把「不假设」固化下来：
+  #    矩阵里为每个条目声明 pkg 名，下面的 Ensure 步骤检测不到就装。
+  #    这样即使将来 runner 镜像变动，也不会再因为缺编译器而红。
+  build:
+    strategy:
+      fail-fast: false   # 一个配置挂了其余照跑，便于一次看全失败面
+      matrix:
+        include:
+          - { os: ubuntu-24.04, cc: gcc-13,   cxx: g++-13,     pkg: g++-13,     label: gcc-13 }
+          - { os: ubuntu-24.04, cc: clang-18, cxx: clang++-18, pkg: clang-18,   label: clang-18 }
+          - { os: ubuntu-22.04, cc: gcc-11,   cxx: g++-11,     pkg: g++-11,     label: "gcc-11 (legacy)" }
+    runs-on: ${{ matrix.os }}
+    name: build (${{ matrix.label }})
     defaults:
       run:
         working-directory: redis-lite
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure (gcc-11)
+      - name: Ensure ${{ matrix.cxx }} is available
+        run: |
+          if command -v "${{ matrix.cxx }}" > /dev/null 2>&1; then
+            echo "${{ matrix.cxx }} already present"
+          else
+            echo "${{ matrix.cxx }} missing on this runner image -- installing"
+            sudo apt-get update -qq
+            sudo apt-get install -y "${{ matrix.pkg }}"
+          fi
+
+      - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
         env:
-          CC: gcc-11
-          CXX: g++-11
-
-      - name: Build
-        run: cmake --build build -j"$(nproc)"
-
-      - name: Unit tests
-        run: ./build/bin/rl-tests
-
-  build-gcc-13:
-    runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: redis-lite
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure (gcc-13)
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
-        env:
-          CC: gcc-13
-          CXX: g++-13
-
-      - name: Build
-        run: cmake --build build -j"$(nproc)"
-
-      - name: Unit tests
-        run: ./build/bin/rl-tests
-
-  build-clang:
-    runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: redis-lite
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure (clang-18)
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
-        env:
-          CC: clang-18
-          CXX: clang++-18
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
 
       - name: Build
         run: cmake --build build -j"$(nproc)"
